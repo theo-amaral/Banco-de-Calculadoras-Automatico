@@ -55,6 +55,9 @@ bool luzDeFundoLigada = true;
 bool modoDevolucaoForcada = false;
 String calculadoraID_manual = "";
 bool numeroDigitado = false;
+bool numOverride = false;
+bool modoDevolucaoRFID = false;
+bool modoCadastro = false;
 
 void mostrarMensagem(String linha1, String linha2) {
     lcd.clear();
@@ -249,7 +252,7 @@ String registraCalc(String num, String uid) {
                  "?acao=registro_uid&uid=" +
                  uid + "&num=" + num;
 
-    Serial.println("Registrando calculadora com numero: " + num);
+    Serial.println("Registrando calculadora com numero: " + num + "\ne RFID: " + uid);
     String payload = accessUrl(url);
     Serial.println("Payload do registro: " + payload);
     return payload;
@@ -285,6 +288,42 @@ int devolveCalculadora(String numero) {
     if (payload == "Calculadora devolvida") return 1;
     return 0;
 }
+void cancelaOperacao() {
+    Serial.println("--- OPERAÇÃO CANCELADA PELO USUÁRIO (RESET GLOBAL) ---");
+    mostrarMensagem("Operacao", "Cancelada");
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(300);
+    digitalWrite(BUZZER_PIN, LOW);  // Um bipe longo de cancelamento
+    delay(1500);
+
+    // Reseta TODAS as variáveis de estado para voltar ao início
+    processoIniciado = false;
+    modoDevolucao = false;
+    esperandoCartao = false;
+    aguardandoConfirmacao = false;
+    aguardandoConfirmacaoEmprestimoDuplo = false;
+    modoCadastroRFID = false;
+    numOverride = false;
+    modoDevolucaoRFID = false;
+    modoCadastro = false;
+    pessoaID = "";
+
+    mostrarMensagem("Sistema pronto", "Pressione A ou B");
+    rfid.PCD_Init();  // Também reinicializa o leitor RFID por segurança
+    return;           // Sai do loop para começar um novo ciclo limpo
+}
+
+String registraCalcNum(String num) {
+    String url = urlCalcs +
+                 "exec"
+                 "?acao=registro_num&num=" +
+                 num;
+
+    Serial.println("Registrando calculadora com numero: " + num);
+    String payload = accessUrl(url);
+    Serial.println("Payload do registro: " + payload);
+    return payload;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -305,25 +344,7 @@ void loop() {
     char key = keypad.getKey();
 
     if (key == '*') {
-        Serial.println("--- OPERAÇÃO CANCELADA PELO USUÁRIO (RESET GLOBAL) ---");
-        mostrarMensagem("Operacao", "Cancelada");
-        digitalWrite(BUZZER_PIN, HIGH);
-        delay(300);
-        digitalWrite(BUZZER_PIN, LOW);  // Um bipe longo de cancelamento
-        delay(1500);
-
-        // Reseta TODAS as variáveis de estado para voltar ao início
-        processoIniciado = false;
-        modoDevolucao = false;
-        esperandoCartao = false;
-        aguardandoConfirmacao = false;
-        aguardandoConfirmacaoEmprestimoDuplo = false;
-        modoCadastroRFID = false;
-        pessoaID = "";
-
-        mostrarMensagem("Sistema pronto", "Pressione A ou B");
-        rfid.PCD_Init();  // Também reinicializa o leitor RFID por segurança
-        return;           // Sai do loop para começar um novo ciclo limpo
+        cancelaOperacao();
     }
 
     // --- PARTE 1: Menu inicial ---
@@ -339,10 +360,10 @@ void loop() {
                 mostrarMensagem("Digite o NUSP", "e pressione #");
             } else if (key == 'B') {
                 modoDevolucao = true;
-                mostrarMensagem("Devolucao", "Aproxime calc.");
+                mostrarMensagem("Devolucao.", "");
             } else if (key == 'D') {
-                modoCadastroRFID = true;
-                mostrarMensagem("Passe a", "calculadora");
+                modoCadastro = true;
+                mostrarMensagem("A:RFID", "B:Digitar numero");
             }
         }
     }
@@ -358,8 +379,30 @@ void loop() {
                 if (key == 'A') {
                     // Usuário escolheu continuar mesmo assim
                     aguardandoConfirmacaoEmprestimoDuplo = false;
-                    esperandoCartao = true;  // Pula direto para a espera do cartão
-                    mostrarMensagem("Confirmado!", "Aproxime calc.");
+                    if (key == 'A') {
+                        aguardandoConfirmacao = false;
+                        mostrarMensagem("A:RFID", "B:Digitar numero");
+                        while (!esperandoCartao && !numOverride && key != '*') {
+                            key = keypad.getKey();
+                            if (key) {  // Apenas processa se uma tecla foi pressionada
+                                if (key == 'A') {
+                                    esperandoCartao = true;
+                                    digitalWrite(BUZZER_PIN, HIGH);
+                                    delay(100);
+                                    digitalWrite(BUZZER_PIN, LOW);
+                                    mostrarMensagem("Aproxime a", "calculadora");
+                                } else if (key == 'B') {
+                                    numOverride = true;
+                                    digitalWrite(BUZZER_PIN, HIGH);
+                                    delay(100);
+                                    digitalWrite(BUZZER_PIN, LOW);
+                                    mostrarMensagem("Digite o numero", "");
+                                } else if (key == '*') {
+                                    cancelaOperacao();
+                                }
+                            }
+                        }
+                    }
                 } else if (key == 'B') {
                     // Usuário escolheu cancelar
                     mostrarMensagem("Operacao", "Cancelada");
@@ -381,8 +424,27 @@ void loop() {
                 digitalWrite(BUZZER_PIN, LOW);
                 if (key == 'A') {
                     aguardandoConfirmacao = false;
-                    esperandoCartao = true;
-                    mostrarMensagem("Confirmado!", "Aproxime calc.");
+                    mostrarMensagem("A:RFID", "B:Digitar numero");
+                    while (!esperandoCartao && !numOverride && key != '*') {
+                        key = keypad.getKey();
+                        if (key) {  // Apenas processa se uma tecla foi pressionada
+                            if (key == 'A') {
+                                esperandoCartao = true;
+                                digitalWrite(BUZZER_PIN, HIGH);
+                                delay(100);
+                                digitalWrite(BUZZER_PIN, LOW);
+                                mostrarMensagem("Aproxime a", "calculadora");
+                            } else if (key == 'B') {
+                                numOverride = true;
+                                digitalWrite(BUZZER_PIN, HIGH);
+                                delay(100);
+                                digitalWrite(BUZZER_PIN, LOW);
+                                mostrarMensagem("Digite o numero", "");
+                            } else if (key == '*') {
+                                cancelaOperacao();
+                            }
+                        }
+                    }
                 } else if (key == 'B') {
                     mostrarMensagem("Operacao", "Cancelada");
                     delay(2000);
@@ -393,6 +455,73 @@ void loop() {
                     mostrarMensagem("Sistema pronto", "Pressione A ou B");
                 }
             }
+        } else if (numOverride) {
+            numOverride = false;
+            String numeroCalc = "";
+
+            while (!numeroDigitado && key != '*') {
+                key = keypad.getKey();
+                if (key) {  // Apenas processa se uma tecla foi pressionada
+                    if (isDigit(key) && numeroCalc.length() < 3) {
+                        numeroCalc += key;
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(100);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        mostrarMensagem("Digite o numero", numeroCalc);
+                    } else if (key == 'C' && numeroCalc.length() > 0) {
+                        numeroCalc.remove(numeroCalc.length() - 1);
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(100);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        mostrarMensagem("Digite o numero", numeroCalc);
+                    } else if (key == '*') {
+                        cancelaOperacao();
+                    } else if (key == '#' && numeroCalc.length() > 0) {
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(80);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        delay(60);
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(80);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        numeroDigitado = true;
+
+                        mostrarMensagem("Emprestando", "Calculadora...");
+                        if (emprestaCalculadora(numeroCalc, pessoaID) &&
+                            sendData("Calculadora-emprestada", pessoaID, numeroCalc)) {
+                            mostrarMensagem("Emprestimo", "Concluido!");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(60);
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                        } else {
+                            mostrarMensagem("Erro ao", "emprestar.");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(60);
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                        }
+                    }
+                }
+                delay(10);
+            }
+            numeroDigitado = false;
+
+            modoDevolucao = false;
+            processoIniciado = false;
+            esperandoCartao = false;
+            aguardandoConfirmacao = false;
+            aguardandoConfirmacaoEmprestimoDuplo = false;
+            pessoaID = "";
+            mostrarMensagem("Sistema pronto", "Pressione A ou B");
         }
 
         // ESTADO 3: Aguardando digitação do NUSP (estado inicial do processo)
@@ -479,8 +608,190 @@ void loop() {
         }
     }
 
+    if (modoDevolucao) {
+        modoDevolucao = false;
+        mostrarMensagem("A:RFID", "B:Digitar numero");
+        while (!modoDevolucaoRFID && !numOverride && key != '*') {
+            key = keypad.getKey();
+            if (key) {  // Apenas processa se uma tecla foi pressionada
+                if (key == 'A') {
+                    modoDevolucaoRFID = true;
+                    digitalWrite(BUZZER_PIN, HIGH);
+                    delay(100);
+                    digitalWrite(BUZZER_PIN, LOW);
+                    mostrarMensagem("Aproxime a", "calculadora");
+                } else if (key == 'B') {
+                    numOverride = true;
+                    digitalWrite(BUZZER_PIN, HIGH);
+                    delay(100);
+                    digitalWrite(BUZZER_PIN, LOW);
+                    mostrarMensagem("Digite o numero", "");
+                } else if (key == '*') {
+                    cancelaOperacao();
+                }
+            }
+        }
+        if (numOverride) {
+            numOverride = false;
+            String numeroCalc = "";
+
+            while (!numeroDigitado && key != '*') {
+                key = keypad.getKey();
+                if (key) {  // Apenas processa se uma tecla foi pressionada
+                    if (isDigit(key) && numeroCalc.length() < 3) {
+                        numeroCalc += key;
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(100);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        mostrarMensagem("Digite o numero", numeroCalc);
+                    } else if (key == 'C' && numeroCalc.length() > 0) {
+                        numeroCalc.remove(numeroCalc.length() - 1);
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(100);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        mostrarMensagem("Digite o numero", numeroCalc);
+                    } else if (key == '*') {
+                        cancelaOperacao();
+                    } else if (key == '#' && numeroCalc.length() > 0) {
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(80);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        delay(60);
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(80);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        numeroDigitado = true;
+
+                        mostrarMensagem("Devolvendo", "Calculadora...");
+                        if (devolveCalculadora(numeroCalc) && sendData("Calculadora-devolvida", "-", numeroCalc)) {
+                            mostrarMensagem("Devolucao", "Concluida!");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(60);
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                        } else {
+                            mostrarMensagem("Erro ao", "devolver.");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(60);
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                        }
+                    }
+                }
+                delay(10);
+            }
+            numeroDigitado = false;
+
+            pessoaID = "";
+            mostrarMensagem("Sistema pronto", "Pressione A ou B");
+        }
+    }
+    if (modoCadastro) {
+        modoCadastro = false;
+        while (!modoCadastroRFID && !numOverride && key != '*') {
+            key = keypad.getKey();
+            if (key) {  // Apenas processa se uma tecla foi pressionada
+                if (key == 'A') {
+                    modoCadastroRFID = true;
+                    digitalWrite(BUZZER_PIN, HIGH);
+                    delay(100);
+                    digitalWrite(BUZZER_PIN, LOW);
+                    mostrarMensagem("Aproxime a", "calculadora");
+                } else if (key == 'B') {
+                    numOverride = true;
+                    digitalWrite(BUZZER_PIN, HIGH);
+                    delay(100);
+                    digitalWrite(BUZZER_PIN, LOW);
+                    mostrarMensagem("Digite o numero", "");
+                } else if (key == '*') {
+                    cancelaOperacao();
+                }
+            }
+        }
+        if (numOverride) {
+            numOverride = false;
+            String numeroCalc = "";
+
+            while (!numeroDigitado && key != '*') {
+                key = keypad.getKey();
+                if (key) {  // Apenas processa se uma tecla foi pressionada
+                    if (isDigit(key) && numeroCalc.length() < 3) {
+                        numeroCalc += key;
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(100);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        mostrarMensagem("Digite o numero", numeroCalc);
+                    } else if (key == 'C' && numeroCalc.length() > 0) {
+                        numeroCalc.remove(numeroCalc.length() - 1);
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(100);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        mostrarMensagem("Digite o numero", numeroCalc);
+                    } else if (key == '*') {
+                        cancelaOperacao();
+                    } else if (key == '#' && numeroCalc.length() > 0) {
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(80);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        delay(60);
+                        digitalWrite(BUZZER_PIN, HIGH);
+                        delay(80);
+                        digitalWrite(BUZZER_PIN, LOW);
+                        numeroDigitado = true;
+
+                        mostrarMensagem("Registrando", "Calculadora...");
+                        String resultado = registraCalcNum(numeroCalc);
+                        if (resultado == "1") {
+                            mostrarMensagem("Registro", "Concluido!");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(60);
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                        } else if (resultado == "2") {
+                            mostrarMensagem("Calculadora ja", "registrada!");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(60);
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                        } else {
+                            mostrarMensagem("Erro ao", "registrar.");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(60);
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(80);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                        }
+                    }
+                }
+                delay(10);
+            }
+            numeroDigitado = false;
+
+            pessoaID = "";
+            mostrarMensagem("Sistema pronto", "Pressione A ou B");
+        }
+    }
     // --- PARTE 3: Leitura do RFID ---
-    if ((modoDevolucao || esperandoCartao || modoCadastroRFID) && rfid.PICC_IsNewCardPresent() &&
+    if ((modoDevolucaoRFID || esperandoCartao || modoCadastroRFID) && rfid.PICC_IsNewCardPresent() &&
         rfid.PICC_ReadCardSerial()) {
         digitalWrite(BUZZER_PIN, HIGH);
         delay(150);
@@ -515,6 +826,8 @@ void loop() {
                         delay(100);
                         digitalWrite(BUZZER_PIN, LOW);
                         mostrarMensagem("Digite o numero", numeroCalc);
+                    } else if (key == '*') {
+                        cancelaOperacao();
                     } else if (key == '#' && numeroCalc.length() > 0) {
                         digitalWrite(BUZZER_PIN, HIGH);
                         delay(80);
@@ -551,7 +864,7 @@ void loop() {
             mostrarMensagem("Sistema pronto", "Pressione A ou B");
         }
 
-        else if (modoDevolucao) {
+        else if (modoDevolucaoRFID) {
             mostrarMensagem("Verificando registro", "da calculadora...");
             String numero = getCalcNum(uid);
             if (numero != "Calculadora nao registrada") {
@@ -592,11 +905,7 @@ void loop() {
             }
 
             // Reset total dos estados após a operação
-            modoDevolucao = false;
-            processoIniciado = false;
-            esperandoCartao = false;
-            aguardandoConfirmacao = false;
-            aguardandoConfirmacaoEmprestimoDuplo = false;
+            modoDevolucaoRFID = false;
             pessoaID = "";
             mostrarMensagem("Sistema pronto", "Pressione A ou B");
         } else if (processoIniciado && esperandoCartao) {
