@@ -8,10 +8,12 @@ function doGet(e) {
   var dados = sheet.getDataRange().getValues();
 
   for (var i = 1; i < dados.length; i++) {  // Começa de 1 pra ignorar cabeçalho
-    if (String(dados[i][3]).trim() === nusp) {  // Coluna D (índice 3) é onde está o NUSP
-      return ContentService.createTextOutput("EMPRESTADO");
+    if (dados[i][3] == nusp) {  // Coluna D (índice 3) é onde está o NUSP
+      var nomeCompleto = dados[i][2]; // Coluna C (índice 2) é o nome
+      var primeiroNome = nomeCompleto.trim().split(" ")[0];
+      return ContentService.createTextOutput("OK:" + primeiroNome);
     }
   }
 
-  return ContentService.createTextOutput("DISPONIVEL");
+  return ContentService.createTextOutput("ERRO:Usuario nao encontrado");
 }

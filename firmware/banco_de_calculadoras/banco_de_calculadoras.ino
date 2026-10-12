@@ -7,19 +7,13 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 
+#include "secrets.h"
+
 // Defines dos pinos
 #define SS_PIN 15
 #define RST_PIN 5  // RST do RFID
 #define LED_PIN 2
 #define BUZZER_PIN 4
-
-// Primeira opção de rede wifi a se conectar. Mude o SSID e a senha para atualizar.
-#define SSID_A "CEE"
-#define PASS_A "C33w!fi#"
-
-// Segunda opção de rede wifi a se conectar. Mude o SSID e a senha para atualizar.
-#define SSID_B "WifiCalculadora"
-#define PASS_B "CEEcalc123"
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 MFRC522 rfid(SS_PIN, RST_PIN);
@@ -59,6 +53,9 @@ bool numOverride = false;
 bool modoDevolucaoRFID = false;
 bool modoCadastro = false;
 
+// Contadores de requisições
+int numFalhas = 0, numSucessos = 0;
+
 void mostrarMensagem(String linha1, String linha2) {
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -80,6 +77,7 @@ void conectaWifi(String SSID, String pass) {
         delay(250);
     }
 
+    WiFi.setAutoReconnect(true);
     Serial.println("\nWi-Fi conectado.");
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
@@ -133,23 +131,54 @@ String accessUrl(String url) {
     http.begin(client, url);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
+    unsigned long millisInicio = millis();
     int httpCode = http.GET();
+    unsigned long millisFim = millis();
     String payload = "";
-    if (httpCode > 0) {
+    if (httpCode == HTTP_CODE_OK) {
         payload = http.getString();
+        numSucessos++;
+    } else {
+        Serial.print("\nErro na requisicao: ");
+        Serial.print(" ");
+        Serial.print(httpCode);
+        Serial.print(" ");
+        Serial.println(http.errorToString(httpCode));
+        Serial.println();
+        numFalhas++;
     }
     http.end();
+    Serial.println("\nTempo: " + String(millisFim - millisInicio) + "ms\nCodigo http: " + httpCode);
+    Serial.println("Taxa de sucesso de requisicoes: " + String((float)numSucessos / (float)(numFalhas + numSucessos)));
 
     return payload;
 }
 
-// Retorna: 1 para OK, 2 para BANIDO, 0 para ERRO/Não Encontrado
+String accessUrlComRetry(String url, int maxTentativas) {
+    for (int i = 0; i < maxTentativas; i++) {
+        verificaConexao();
+        Serial.println("  Tentativa " + String(i + 1) + "/" + String(maxTentativas) + ":");
+        String payload = accessUrl(url);
+        if (payload != "") return payload;
+        if (i + 1 < maxTentativas) {
+            Serial.println("  Tentando novamente.");
+            mostrarMensagem("Tentando de novo.", "Erro: " + String(i + 1) + "/" + String(maxTentativas));
+            delay(500 * (i + 1));
+        }
+    }
+    return "";
+}
+
+// Retorna: 1 para OK, 2 para BANIDO, 0 para ERRO/Não Encontrado, -1 para erro de rede
 int verificarNUSP(String nusp, String& primeiroNome) {
     String url = urlNusps + "exec?nusp=" + nusp;
 
     Serial.println("Verificando NUSP: " + nusp);
-    String payload = accessUrl(url);
+    String payload = accessUrlComRetry(url, 3);
     Serial.println("Status do NUSP: " + payload);
+    if (payload == "") {
+        return -1;
+    }
     int posBanido = payload.indexOf("BANIDO:");
     int posOK = payload.indexOf("OK:");
 
@@ -197,7 +226,7 @@ int verificarNUSP(String nusp, String& primeiroNome) {
 String verificarEmprestimoAtivo(String nusp) {
     String url = urlCalcs + "exec?acao=consulta_emprestimo&nusp=" + nusp;
 
-    String payload = accessUrl(url);
+    String payload = accessUrlComRetry(url, 3);
 
     Serial.println("Verificando emprestimo ativo para NUSP: " + nusp);
     Serial.println("Payload da verificação: " + payload);
@@ -205,32 +234,19 @@ String verificarEmprestimoAtivo(String nusp) {
 }
 
 bool sendData(String nome, String valor, String uid) {
-    WiFiClientSecure client;
-    client.setInsecure();
-    HTTPClient http;
+    String rid = String(esp_random(), HEX);
 
-    // Usa o scriptID principal (de registro), que você definiu no início do código
-    String url = urlLog + "exec?nome=" + nome + "&valor=" + valor + "&uid=" + uid;
-
-    http.begin(client, url);
-    // Opcional, mas bom ter: seguir redirecionamentos se houver
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-
-    int httpCode = http.GET();
-    String payload = http.getString();
+    String url = urlLog + "exec?nome=" + nome + "&valor=" + valor + "&uid=" + uid + "&rid=" + rid;
 
     Serial.println("Enviando dados: " + url);
+    String payload = accessUrlComRetry(url, 3);
     Serial.println("Resposta do servidor de registro: " + payload);
-    Serial.println("HTTP Code do registro: " + httpCode);
 
-    http.end();
-
-    // Consideramos sucesso se o código HTTP for 200 OK
-    if (httpCode == 200) {
-        return true;
-    } else {
+    if (payload == "")
         return false;
-    }
+    else if (payload == "Ok")
+        return true;
+    return false;
 }
 
 String getCalcNum(String uid) {
@@ -240,7 +256,7 @@ String getCalcNum(String uid) {
                  uid;
 
     Serial.println("Checando disponibilidade da calculadora com RFID: " + uid);
-    String payload = accessUrl(url);
+    String payload = accessUrlComRetry(url, 3);
     Serial.println("Payload da disponibilidade: " + payload);
 
     return payload;
@@ -275,7 +291,7 @@ int emprestaCalculadora(String numero, String nusp) {
                  "?acao=registro_emprestimo&nusp=" +
                  nusp + "&numero=" + numero;
 
-    String payload = accessUrl(url);
+    String payload = accessUrlComRetry(url, 3);
 
     if (payload == "Calculadora emprestada") return 1;
     return 0;
@@ -283,7 +299,7 @@ int emprestaCalculadora(String numero, String nusp) {
 
 int devolveCalculadora(String numero) {
     String url = urlCalcs + "exec?acao=registro_devolucao&numero=" + numero;
-    String payload = accessUrl(url);
+    String payload = accessUrlComRetry(url, 3);
 
     if (payload == "Calculadora devolvida") return 1;
     return 0;
@@ -341,6 +357,7 @@ void setup() {
 }
 
 void loop() {
+    verificaConexao();
     char key = keypad.getKey();
 
     if (key == '*') {
@@ -487,8 +504,12 @@ void loop() {
                         numeroDigitado = true;
 
                         mostrarMensagem("Emprestando", "Calculadora...");
-                        if (emprestaCalculadora(numeroCalc, pessoaID) &&
-                            sendData("Calculadora-emprestada", pessoaID, numeroCalc)) {
+                        if (emprestaCalculadora(numeroCalc, pessoaID)) {
+                            Serial.print("Emprestimo ok / ");
+                            if (sendData("Calculadora-emprestada", pessoaID, numeroCalc))
+                                Serial.println("Log ok");
+                            else
+                                (Serial.println("Log falhou"));
                             mostrarMensagem("Emprestimo", "Concluido!");
                             digitalWrite(BUZZER_PIN, HIGH);
                             delay(80);
@@ -573,9 +594,7 @@ void loop() {
                             } else {
                                 mostrarMensagem("Erro ao checar", "emprestimos.");
                                 delay(2000);
-                                processoIniciado = false;  // Reseta
-                                pessoaID = "";
-                                mostrarMensagem("Sistema pronto", "Pressione A ou B");
+                                mostrarMensagem("NUSP:", pessoaID);
                             }
                             break;
                         }
@@ -591,6 +610,14 @@ void loop() {
                             mostrarMensagem("Sistema pronto", "Pressione A ou B");
                             break;
 
+                        case -1:
+                            mostrarMensagem("Erro de rede", "tente de novo");
+                            digitalWrite(BUZZER_PIN, HIGH);
+                            delay(500);
+                            digitalWrite(BUZZER_PIN, LOW);
+                            delay(2000);
+                            mostrarMensagem("NUSP:", pessoaID);
+                            break;
                         case 0:  // CASO ERRO ou NÃO ENCONTRADO
                         default:
                             mostrarMensagem("NUSP nao", "cadastrado");
@@ -663,7 +690,12 @@ void loop() {
                         numeroDigitado = true;
 
                         mostrarMensagem("Devolvendo", "Calculadora...");
-                        if (devolveCalculadora(numeroCalc) && sendData("Calculadora-devolvida", "-", numeroCalc)) {
+                        if (devolveCalculadora(numeroCalc)) {
+                            Serial.print("Devolucao ok / ");
+                            if (sendData("Calculadora-devolvida", "-", numeroCalc))
+                                Serial.println("Log ok");
+                            else
+                                (Serial.println("Log falhou"));
                             mostrarMensagem("Devolucao", "Concluida!");
                             digitalWrite(BUZZER_PIN, HIGH);
                             delay(80);
@@ -867,11 +899,23 @@ void loop() {
         else if (modoDevolucaoRFID) {
             mostrarMensagem("Verificando registro", "da calculadora...");
             String numero = getCalcNum(uid);
-            if (numero != "Calculadora nao registrada") {
+            if (numero == "") {
+                mostrarMensagem("Erro de rede", "tente de novo");
+                digitalWrite(BUZZER_PIN, HIGH);
+                delay(500);
+                digitalWrite(BUZZER_PIN, LOW);
+                delay(2000);
+                mostrarMensagem("Aproxime a", "calculadora");
+            } else if (numero != "Calculadora nao registrada" and numero.length() <= 3 and numero.length() >= 1) {
                 mostrarMensagem("Devolvendo Calc:", numero);
                 delay(1500);
                 mostrarMensagem("Registrando...", "Aguarde");
-                if (devolveCalculadora(numero) && sendData("Calculadora-devolvida", "-", numero)) {
+                if (devolveCalculadora(numero)) {
+                    Serial.print("Devolucao ok / ");
+                    if (sendData("Calculadora-devolvida", "-", numero))
+                        Serial.println("Log ok");
+                    else
+                        (Serial.println("Log falhou"));
                     mostrarMensagem("Devolucao", "Concluida!");
                     digitalWrite(BUZZER_PIN, HIGH);
                     delay(80);
@@ -892,6 +936,10 @@ void loop() {
                     digitalWrite(BUZZER_PIN, LOW);
                     delay(2000);
                 }
+                // Reset total dos estados após a operação
+                modoDevolucaoRFID = false;
+                pessoaID = "";
+                mostrarMensagem("Sistema pronto", "Pressione A ou B");
             } else {
                 mostrarMensagem("Calculadora nao", "registrada!");
                 digitalWrite(BUZZER_PIN, HIGH);
@@ -902,20 +950,32 @@ void loop() {
                 delay(80);
                 digitalWrite(BUZZER_PIN, LOW);
                 delay(2000);
+                // Reset total dos estados após a operação
+                modoDevolucaoRFID = false;
+                pessoaID = "";
+                mostrarMensagem("Sistema pronto", "Pressione A ou B");
             }
 
-            // Reset total dos estados após a operação
-            modoDevolucaoRFID = false;
-            pessoaID = "";
-            mostrarMensagem("Sistema pronto", "Pressione A ou B");
         } else if (processoIniciado && esperandoCartao) {
             mostrarMensagem("Checando base", "de dados");
             String numero = getCalcNum(uid);
-            if (numero != "Calculadora nao registrada") {
+            if (numero == "") {
+                mostrarMensagem("Erro de rede", "tente de novo");
+                digitalWrite(BUZZER_PIN, HIGH);
+                delay(500);
+                digitalWrite(BUZZER_PIN, LOW);
+                delay(2000);
+                mostrarMensagem("Aproxime a", "calculadora");
+            } else if (numero != "Calculadora nao registrada") {
                 mostrarMensagem("Emprestando Calc:", numero);
                 delay(1500);
                 mostrarMensagem("Registrando...", "Aguarde");
-                if (emprestaCalculadora(numero, pessoaID) && sendData("Calculadora-emprestada", pessoaID, numero)) {
+                if (emprestaCalculadora(numero, pessoaID)) {
+                    Serial.print("Emprestimo ok / ");
+                    if (sendData("Calculadora-emprestada", pessoaID, numero))
+                        Serial.println("Log ok");
+                    else
+                        (Serial.println("Log falhou"));
                     mostrarMensagem("Emprestimo", "Concluido!");
                     digitalWrite(BUZZER_PIN, HIGH);
                     delay(80);
@@ -936,6 +996,14 @@ void loop() {
                     digitalWrite(BUZZER_PIN, LOW);
                     delay(2000);
                 }
+                // Reset total dos estados após a operação
+                modoDevolucao = false;
+                processoIniciado = false;
+                esperandoCartao = false;
+                aguardandoConfirmacao = false;
+                aguardandoConfirmacaoEmprestimoDuplo = false;
+                pessoaID = "";
+                mostrarMensagem("Sistema pronto", "Pressione A ou B");
             } else {
                 mostrarMensagem("Calculadora nao", "registrada!");
                 digitalWrite(BUZZER_PIN, HIGH);
@@ -946,16 +1014,15 @@ void loop() {
                 delay(80);
                 digitalWrite(BUZZER_PIN, LOW);
                 delay(2000);
+                // Reset total dos estados após a operação
+                modoDevolucao = false;
+                processoIniciado = false;
+                esperandoCartao = false;
+                aguardandoConfirmacao = false;
+                aguardandoConfirmacaoEmprestimoDuplo = false;
+                pessoaID = "";
+                mostrarMensagem("Sistema pronto", "Pressione A ou B");
             }
-
-            // Reset total dos estados após a operação
-            modoDevolucao = false;
-            processoIniciado = false;
-            esperandoCartao = false;
-            aguardandoConfirmacao = false;
-            aguardandoConfirmacaoEmprestimoDuplo = false;
-            pessoaID = "";
-            mostrarMensagem("Sistema pronto", "Pressione A ou B");
         }
 
         // Comandos comuns de reset do RFID após qualquer leitura bem sucedida
