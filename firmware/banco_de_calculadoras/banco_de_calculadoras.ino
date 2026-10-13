@@ -31,12 +31,6 @@ String passwordEscolhido;
 
 // Variaveis de estado
 const String scriptID = "AKfycbzRRR7mqQwMyhBXubDizPepQ6kfTJrFyTQ2SFkhE_jDAOLmhMjW61hr27F6-OV8Qpk";
-const String urlNusps =
-    "https://script.google.com/macros/s/AKfycbyVa5s6y2LapLeHA-z22L7VFIzWjMWvH34suPs0FrUt7mcPd8i8QGFx_kdKQG1p6F4CuA/";
-const String urlCalcs =
-    "https://script.google.com/macros/s/AKfycbz2cieuLrqqRdKGE7-ZOuS49DZ8zUu-Nhx8LFCX3YYXwGIkLeU54CuagQ2mTSTgJ87K/";
-const String urlLog =
-    "https://script.google.com/macros/s/AKfycbzRRR7mqQwMyhBXubDizPepQ6kfTJrFyTQ2SFkhE_jDAOLmhMjW61hr27F6-OV8Qpk/";
 String lastUid = "";
 String pessoaID = "";
 bool esperandoCartao = false;
@@ -506,10 +500,6 @@ void loop() {
                         mostrarMensagem("Emprestando", "Calculadora...");
                         if (emprestaCalculadora(numeroCalc, pessoaID)) {
                             Serial.print("Emprestimo ok / ");
-                            if (sendData("Calculadora-emprestada", pessoaID, numeroCalc))
-                                Serial.println("Log ok");
-                            else
-                                (Serial.println("Log falhou"));
                             mostrarMensagem("Emprestimo", "Concluido!");
                             digitalWrite(BUZZER_PIN, HIGH);
                             delay(80);
@@ -518,7 +508,10 @@ void loop() {
                             digitalWrite(BUZZER_PIN, HIGH);
                             delay(80);
                             digitalWrite(BUZZER_PIN, LOW);
-                            delay(2000);
+                            if (sendData("Calculadora-emprestada", pessoaID, numeroCalc))
+                                Serial.println("Log ok");
+                            else
+                                (Serial.println("Log falhou"));
                         } else {
                             mostrarMensagem("Erro ao", "emprestar.");
                             digitalWrite(BUZZER_PIN, HIGH);
@@ -692,10 +685,6 @@ void loop() {
                         mostrarMensagem("Devolvendo", "Calculadora...");
                         if (devolveCalculadora(numeroCalc)) {
                             Serial.print("Devolucao ok / ");
-                            if (sendData("Calculadora-devolvida", "-", numeroCalc))
-                                Serial.println("Log ok");
-                            else
-                                (Serial.println("Log falhou"));
                             mostrarMensagem("Devolucao", "Concluida!");
                             digitalWrite(BUZZER_PIN, HIGH);
                             delay(80);
@@ -704,7 +693,10 @@ void loop() {
                             digitalWrite(BUZZER_PIN, HIGH);
                             delay(80);
                             digitalWrite(BUZZER_PIN, LOW);
-                            delay(2000);
+                            if (sendData("Calculadora-devolvida", "-", numeroCalc))
+                                Serial.println("Log ok");
+                            else
+                                (Serial.println("Log falhou"));
                         } else {
                             mostrarMensagem("Erro ao", "devolver.");
                             digitalWrite(BUZZER_PIN, HIGH);
@@ -912,10 +904,6 @@ void loop() {
                 mostrarMensagem("Registrando...", "Aguarde");
                 if (devolveCalculadora(numero)) {
                     Serial.print("Devolucao ok / ");
-                    if (sendData("Calculadora-devolvida", "-", numero))
-                        Serial.println("Log ok");
-                    else
-                        (Serial.println("Log falhou"));
                     mostrarMensagem("Devolucao", "Concluida!");
                     digitalWrite(BUZZER_PIN, HIGH);
                     delay(80);
@@ -924,7 +912,10 @@ void loop() {
                     digitalWrite(BUZZER_PIN, HIGH);
                     delay(80);
                     digitalWrite(BUZZER_PIN, LOW);
-                    delay(2000);
+                    if (sendData("Calculadora-devolvida", "-", numero))
+                        Serial.println("Log ok");
+                    else
+                        (Serial.println("Log falhou"));
                 } else {
                     mostrarMensagem("Erro ao", "devolver.");
                     digitalWrite(BUZZER_PIN, HIGH);
@@ -972,10 +963,6 @@ void loop() {
                 mostrarMensagem("Registrando...", "Aguarde");
                 if (emprestaCalculadora(numero, pessoaID)) {
                     Serial.print("Emprestimo ok / ");
-                    if (sendData("Calculadora-emprestada", pessoaID, numero))
-                        Serial.println("Log ok");
-                    else
-                        (Serial.println("Log falhou"));
                     mostrarMensagem("Emprestimo", "Concluido!");
                     digitalWrite(BUZZER_PIN, HIGH);
                     delay(80);
@@ -984,7 +971,10 @@ void loop() {
                     digitalWrite(BUZZER_PIN, HIGH);
                     delay(80);
                     digitalWrite(BUZZER_PIN, LOW);
-                    delay(2000);
+                    if (sendData("Calculadora-emprestada", pessoaID, numero))
+                        Serial.println("Log ok");
+                    else
+                        (Serial.println("Log falhou"));
                 } else {
                     mostrarMensagem("Erro ao", "emprestar.");
                     digitalWrite(BUZZER_PIN, HIGH);
