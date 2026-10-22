@@ -1,17 +1,18 @@
 function doGet(e) {
   var resultado = 'Ok';
   var planilha = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var dados = planilha.getDataRange().getValues();
+  var numeroLinhas = planilha.getRange('A:A').getNumRows();
+  
   if(e.parameter == undefined) {
     resultado = 'Nenhum Parametro.';
   }
   else if (e.parameter.acao == 'consulta_uid') {
     var uid = e.parameter.uid;
 
-    for(var i = 0; i < dados.length; i++) {
-      if(dados[i][1] == uid) {
-        var numero = dados[i][0];
-        return ContentService.createTextOutput(numero);
+    var colunaUids = planilha.getRange('B:B').getValues();
+    for (var i = 0; i < numeroLinhas; i++){
+      if (colunaUids[i][0] == uid) {
+        return ContentService.createTextOutput(planilha.getRange(i + 1, 1).getValue());
       }
     }
     return ContentService.createTextOutput('Calculadora nao registrada');
@@ -20,8 +21,10 @@ function doGet(e) {
     var ultimaLinha = planilha.getLastRow();
     var uid = e.parameter.uid;
     var num = e.parameter.num;
-    for(var i = 0; i < dados.length; i++) {
-      if(dados[i][1] == uid) {
+
+    var colunaUids = planilha.getRange('B:B').getValues();
+    for(var i = 0; i < numeroLinhas; i++) {
+      if(colunaUids[i][0] == uid) {
         return ContentService.createTextOutput('2');
       }
     }
@@ -34,8 +37,10 @@ function doGet(e) {
   }
   else if (e.parameter.acao == 'consulta_emprestimo') {
     var nusp = e.parameter.nusp;
-    for(var i = 0; i < dados.length; i++) {
-      if(dados[i][3] == nusp) return ContentService.createTextOutput('EMPRESTADO');
+
+    var colunaNusps = planilha.getRange('D:D').getValues();
+    for(var i = 0; i < numeroLinhas; i++) {
+      if(colunaNusps[i][0] == nusp) return ContentService.createTextOutput('EMPRESTADO');
     }
     return ContentService.createTextOutput('DISPONIVEL');
   }
@@ -44,16 +49,14 @@ function doGet(e) {
     var nusp = e.parameter.nusp;
     var linha = 0;
 
-    for(var i = 0; i < dados.length; i++) {
-      if(dados[i][0] == numero){
+    var colunaNumeros = planilha.getRange('A:A').getValues();
+    for(var i = 0; i < numeroLinhas; i++) {
+      if(colunaNumeros[i][0] == numero){
         linha = i + 1;
       }
     }
     if (linha != 0){
-      planilha.getRange(linha, 3).setValue('Emprestada');
-      planilha.getRange(linha, 4).setValue(nusp);
-      planilha.getRange(linha, 5).setValue(Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy"));
-      planilha.getRange(linha, 6).setValue(Utilities.formatDate(new Date(), "GMT-3", "HH:mm:ss"));
+      planilha.getRange(linha, 3, 1, 4).setValues([['Emprestada', nusp, Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy"), Utilities.formatDate(new Date(), "GMT-3", "HH:mm:ss")]])
       return ContentService.createTextOutput('Calculadora emprestada');
     }
     return ContentService.createTextOutput('Calculadora nao encontrada');
@@ -61,12 +64,10 @@ function doGet(e) {
   else if (e.parameter.acao == "registro_devolucao") {
     var numero = e.parameter.numero;
 
-    for(var i = 0; i < dados.length; i++) {
-      if(dados[i][0] == numero) {
-        planilha.getRange(i+1, 3).setValue('Disponivel');
-        planilha.getRange(i+1, 4).setValue('');
-        planilha.getRange(i+1, 5).setValue('');
-        planilha.getRange(i+1, 6).setValue('');
+    var colunaNumeros = planilha.getRange('A:A').getValues();
+    for(var i = 0; i < numeroLinhas; i++) {
+      if(colunaNumeros[i][0] == numero) {
+        planilha.getRange(i + 1, 3, 1, 4).setValues([['Disponivel', '', '', '']]);
         return ContentService.createTextOutput('Calculadora devolvida');
       }
     }
@@ -74,9 +75,10 @@ function doGet(e) {
   }
   else if (e.parameter.acao == "registro_num") {
     var num = e.parameter.num;
-    
-    for(var i = 0; i < dados.length; i++) {
-      if(dados[i][0] == num) {
+
+    var colunaNumeros = planilha.getRange('A:A').getValues();
+    for(var i = 0; i < numeroLinhas; i++) {
+      if(colunaNumeros[i][0] == num) {
         return ContentService.createTextOutput('2');
       }
     }
